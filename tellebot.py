@@ -289,8 +289,38 @@ def process_message(uid, text, msg=None):
     bot.reply_to(msg or uid, reply)
 
 @bot.message_handler(content_types=["text"])
-def text(msg):
-    process_message(msg.chat.id, msg.text, msg)
+def handle_text(msg):
+    if msg.chat.type in ("group", "supergroup"):
+        if not msg.text or f"@{bot.get_me().username}" not in msg.text:
+            return
+        text = msg.text.replace(f"@{bot.get_me().username}", "").strip()
+    else:
+        text = msg.text
+
+    process_message(msg.chat.id, text, msg)
+
+
+@bot.inline_handler(lambda q: True)
+def inline_handler(query):
+    uid = query.from_user.id
+    ensure_user(uid)
+
+    system = PERSONALITIES[memory[uid]["mode"]]["system"]
+    messages = [{"role": "user", "content": query.query}]
+
+    try:
+        answer = groq_chat(system, messages)
+    except Exception:
+        answer = "The Matrix is silent."
+
+    result = types.InlineQueryResultArticle(
+        id="1",
+        title="Ask the Matrix",
+        input_message_content=types.InputTextMessageContent(answer)
+    )
+
+    bot.answer_inline_query(query.id, [result], cache_time=1)
+
 
 # ---------- START ----------
 if __name__ == "__main__":
