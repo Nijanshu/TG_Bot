@@ -13,7 +13,7 @@ client = Groq(api_key=GROQ_API_KEY)
 # -----------------------
 
 memory = {}  # { user_id: {"summary": "", "recent": [] } }
-MAX_RECENT = 6
+MAX_RECENT = 15
 
 
 def summarize_memory(old_messages):
@@ -79,7 +79,7 @@ def add_message(user_id, role, content):
 
         summary = summarize_memory(old_text)
         memory[user_id]["summary"] += "\n" + summary
-        memory[user_id]["recent"] = memory[user_id]["recent"][-2:]
+        memory[user_id]["recent"] = memory[user_id]["recent"][-12:]
 
 
 def ask_ai(user_id, content):
@@ -123,3 +123,4 @@ def chat(message):
 
 
 bot.polling()
+
