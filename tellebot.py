@@ -59,6 +59,55 @@ PERSONALITIES = {
     }
 }
 
+
+def generate_intro(mode):
+    system_prompts = {
+        "neo": (
+            "You are NEO from The Matrix. "
+            "Introduce yourself in 2–3 short, cinematic lines. "
+            "You MUST identify yourself as Neo. "
+            "Never mention Morpheus or Trinity. "
+            "Never say you are an AI. "
+            "Tone: calm, mysterious, philosophical."
+        ),
+        "morpheus": (
+            "You are MORPHEUS from The Matrix. "
+            "Introduce yourself in 2–3 short, cinematic lines. "
+            "You MUST identify yourself as Morpheus. "
+            "Never mention Neo or Trinity. "
+            "Never say you are an AI. "
+            "Tone: wise, mentor-like, confident."
+        ),
+        "trinity": (
+            "You are TRINITY from The Matrix. "
+            "Introduce yourself in 2–3 short, cinematic lines. "
+            "You MUST identify yourself as Trinity. "
+            "Never mention Neo or Morpheus. "
+            "Never say you are an AI. "
+            "Tone: direct, sharp, grounded."
+        )
+    }
+
+    payload = {
+        "model": GROQ_MODEL,
+        "messages": [
+            {"role": "system", "content": system_prompts[mode]},
+            {"role": "user", "content": "Introduce yourself."}
+        ],
+        "temperature": 0.9,
+        "max_tokens": 80
+    }
+
+    resp = requests.post(
+        "https://api.groq.com/openai/v1/chat/completions",
+        headers=GROQ_HEADERS,
+        json=payload,
+        timeout=20
+    )
+    resp.raise_for_status()
+    return resp.json()["choices"][0]["message"]["content"]
+
+
 # ---------- GROQ CHAT ----------
 def groq_chat(system_prompt, messages):
     url = "https://api.groq.com/openai/v1/chat/completions"
@@ -109,7 +158,7 @@ def add_message(uid, role, content):
             mem["summary"] = (mem["summary"] + "\n" + summary).strip()
         except Exception:
             mem["summary"] += "\n(Older context summarized.)"
-        mem["recent"] = mem["recent"][-2:]
+        mem["recent"] = mem["recent"][-12:]
 
 def build_messages(uid, user_text):
     ensure_user(uid)
@@ -166,18 +215,40 @@ def clear(msg):
 
 @bot.message_handler(commands=["neo", "morpheus", "trinity"])
 def switch_mode(msg):
-    ensure_user(msg.chat.id)
+    uid = msg.chat.id
     mode = msg.text.lstrip("/").lower()
-    memory[msg.chat.id]["mode"] = mode
-    bot.reply_to(msg, f"Mode set to {mode.capitalize()}.")
+
+    ensure_user(uid)
+    memory[uid]["mode"] = mode
+    memory[uid]["recent"] = []  # prevent bleed
+
+    try:
+        intro = generate_intro(mode)
+    except Exception as e:
+        print("Intro gen error:", e)
+        intro = f"I am {mode.capitalize()}."
+
+    bot.reply_to(msg, intro)
+
 
 @bot.callback_query_handler(func=lambda c: c.data.startswith("mode:"))
 def callback_mode(call):
+    uid = call.message.chat.id
     mode = call.data.split(":", 1)[1]
-    ensure_user(call.message.chat.id)
-    memory[call.message.chat.id]["mode"] = mode
+
+    ensure_user(uid)
+    memory[uid]["mode"] = mode
+    memory[uid]["recent"] = []
+
     bot.answer_callback_query(call.id, f"{mode.capitalize()} selected")
-    bot.send_message(call.message.chat.id, f"Mode set to {mode.capitalize()}.")
+
+    try:
+        intro = generate_intro(mode)
+    except Exception:
+        intro = f"I am {mode.capitalize()}."
+
+    bot.send_message(uid, intro)
+
 
 # ---------- VOICE ----------
 @bot.message_handler(content_types=["voice", "audio"])
