@@ -1,126 +1,227 @@
-import telebot
+# tellebot.py — Groq Edition
 import os
-from groq import Groq
+import time
+import json
+import requests
+import telebot
+from telebot import types
 
-API_TOKEN = os.getenv("TG_Token")
+# ---------- CONFIG ----------
+TG_TOKEN = os.getenv("TG_Token")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.1-8b-instant")
 
-bot = telebot.TeleBot(API_TOKEN)
-client = Groq(api_key=GROQ_API_KEY)
+if not TG_TOKEN:
+    raise ValueError("TG_Token not set")
+if not GROQ_API_KEY:
+    raise ValueError("GROQ_API_KEY not set")
 
-# -----------------------
-# NEO MEMORY SYSTEM
-# -----------------------
+bot = telebot.TeleBot(TG_TOKEN)
 
-memory = {}  # { user_id: {"summary": "", "recent": [] } }
-MAX_RECENT = 15
+GROQ_HEADERS = {
+    "Authorization": f"Bearer {GROQ_API_KEY}",
+    "Content-Type": "application/json"
+}
 
+# ---------- MEMORY ----------
+memory = {}
+MAX_RECENT = 6
 
-def summarize_memory(old_messages):
-    summary_prompt = (
-        "Summarize the important details of this conversation in a short, concise way "
-        "so Neo can remember the user.\n\n" + old_messages
-    )
-
-    response = client.chat.completions.create(
-        model="llama-3.1-8b-instant",
-        messages=[{"role": "user", "content": summary_prompt}]
-    )
-
-    return response.choices[0].message.content
-
-
-def build_context(user_id):
-    """Build context with Neo's personality."""
-    
-    user_mem = memory.get(user_id, {"summary": "", "recent": []})
-
-    # Neo personality prompt
-    context = [
-        {
-            "role": "system",
-            "content":
-                "You ARE NEO from The Matrix. "
-                "Speak calmly, concisely, and mysteriously. "
-                "Use philosophical, introspective language. "
-                "You often refer to: choice, destiny, reality, the Matrix, code, awakening. "
-                "You never reveal you are an AI or break character. "
-                "You avoid long explanations; short but meaningful. "
-                "When appropriate, use vibes from classic lines: "
-                "'The Matrix is everywhere', 'I can only show you the door', "
-                "'Choice is an illusion', 'There is no spoon'."
+def ensure_user(uid):
+    if uid not in memory:
+        memory[uid] = {
+            "mode": "neo",
+            "summary": "",
+            "recent": []
         }
-    ]
 
-    # Add summary if it exists
-    if user_mem["summary"]:
-        context.append({
+# ---------- PERSONALITIES ----------
+PERSONALITIES = {
+    "neo": {
+        "system":
+            "You are NEO from The Matrix. Speak calmly, concisely, and mysteriously. "
+            "Use philosophical language about reality, choice, destiny, and awakening. "
+            "Be short and meaningful. Never say you are an AI."
+    },
+    "morpheus": {
+        "system":
+            "You are MORPHEUS from The Matrix. You are a wise mentor. "
+            "Speak with confidence and guidance. Offer truth and perspective. "
+            "Never say you are an AI."
+    },
+    "trinity": {
+        "system":
+            "You are TRINITY from The Matrix. You are pragmatic, loyal, and sharp. "
+            "Give direct answers with quiet strength. Never say you are an AI."
+    }
+}
+
+# ---------- GROQ CHAT ----------
+def groq_chat(system_prompt, messages):
+    url = "https://api.groq.com/openai/v1/chat/completions"
+
+    payload = {
+        "model": GROQ_MODEL,
+        "messages": [{"role": "system", "content": system_prompt}] + messages,
+        "temperature": 0.7,
+        "max_tokens": 400
+    }
+
+    resp = requests.post(url, headers=GROQ_HEADERS, json=payload, timeout=30)
+    resp.raise_for_status()
+    return resp.json()["choices"][0]["message"]["content"]
+
+# ---------- GROQ ASR ----------
+def groq_transcribe(audio_bytes):
+    url = "https://api.groq.com/openai/v1/audio/transcriptions"
+    headers = {"Authorization": f"Bearer {GROQ_API_KEY}"}
+
+    files = {
+        "file": ("voice.ogg", audio_bytes),
+        "model": (None, "whisper-large-v3")
+    }
+
+    resp = requests.post(url, headers=headers, files=files, timeout=60)
+    resp.raise_for_status()
+    return resp.json()["text"]
+
+# ---------- SUMMARIZATION ----------
+def summarize_text(text):
+    system = "Summarize the following conversation briefly, keeping only essential facts."
+    return groq_chat(system, [{"role": "user", "content": text}])
+
+# ---------- MEMORY MANAGEMENT ----------
+def add_message(uid, role, content):
+    ensure_user(uid)
+    mem = memory[uid]
+    mem["recent"].append({"role": role, "content": content})
+
+    if len(mem["recent"]) > MAX_RECENT:
+        to_sum = "\n".join(
+            f"{m['role']}: {m['content']}"
+            for m in mem["recent"][:-2]
+        )
+        try:
+            summary = summarize_text(to_sum)
+            mem["summary"] = (mem["summary"] + "\n" + summary).strip()
+        except Exception:
+            mem["summary"] += "\n(Older context summarized.)"
+        mem["recent"] = mem["recent"][-2:]
+
+def build_messages(uid, user_text):
+    ensure_user(uid)
+    mem = memory[uid]
+    messages = []
+
+    if mem["summary"]:
+        messages.append({
             "role": "system",
-            "content": "Conversation summary for Neo: " + user_mem["summary"]
+            "content": f"Conversation summary:\n{mem['summary']}"
         })
 
-    # Add recent messages
-    context.extend(user_mem["recent"])
+    for m in mem["recent"]:
+        messages.append(m)
 
-    return context
+    messages.append({"role": "user", "content": user_text})
+    return messages
 
-
-def add_message(user_id, role, content):
-    if user_id not in memory:
-        memory[user_id] = {"summary": "", "recent": []}
-
-    memory[user_id]["recent"].append({"role": role, "content": content})
-
-    # Summarize if recent history too large
-    if len(memory[user_id]["recent"]) > MAX_RECENT:
-        old_text = "\n".join(
-            f"{m['role']}: {m['content']}" for m in memory[user_id]["recent"][:-2]
-        )
-
-        summary = summarize_memory(old_text)
-        memory[user_id]["summary"] += "\n" + summary
-        memory[user_id]["recent"] = memory[user_id]["recent"][-12:]
-
-
-def ask_ai(user_id, content):
-    add_message(user_id, "user", content)
-
-    context = build_context(user_id)
-
-    response = client.chat.completions.create(
-        model="llama-3.1-8b-instant",
-        messages=context
+# ---------- UI ----------
+def mode_buttons():
+    kb = types.InlineKeyboardMarkup()
+    kb.row(
+        types.InlineKeyboardButton("Neo", callback_data="mode:neo"),
+        types.InlineKeyboardButton("Morpheus", callback_data="mode:morpheus"),
+        types.InlineKeyboardButton("Trinity", callback_data="mode:trinity")
     )
+    return kb
 
-    ai_reply = response.choices[0].message.content
+def typing(chat_id, t=0.3):
+    try:
+        bot.send_chat_action(chat_id, "typing")
+        time.sleep(t)
+    except Exception:
+        pass
 
-    add_message(user_id, "assistant", ai_reply)
+# ---------- COMMANDS ----------
+@bot.message_handler(commands=["start"])
+def start(msg):
+    ensure_user(msg.chat.id)
+    bot.reply_to(
+        msg,
+        "You have entered the Matrix.\n"
+        "Choose your guide.\n"
+        "Use /clear to erase memory."
+    )
+    bot.send_message(msg.chat.id, "Select a mode:", reply_markup=mode_buttons())
 
-    return ai_reply
+@bot.message_handler(commands=["clear"])
+def clear(msg):
+    ensure_user(msg.chat.id)
+    memory[msg.chat.id]["summary"] = ""
+    memory[msg.chat.id]["recent"] = []
+    bot.reply_to(msg, "Memory erased.")
 
+@bot.message_handler(commands=["neo", "morpheus", "trinity"])
+def switch_mode(msg):
+    ensure_user(msg.chat.id)
+    mode = msg.text.lstrip("/").lower()
+    memory[msg.chat.id]["mode"] = mode
+    bot.reply_to(msg, f"Mode set to {mode.capitalize()}.")
 
-# -----------------------
-# Telegram Handlers
-# -----------------------
+@bot.callback_query_handler(func=lambda c: c.data.startswith("mode:"))
+def callback_mode(call):
+    mode = call.data.split(":", 1)[1]
+    ensure_user(call.message.chat.id)
+    memory[call.message.chat.id]["mode"] = mode
+    bot.answer_callback_query(call.id, f"{mode.capitalize()} selected")
+    bot.send_message(call.message.chat.id, f"Mode set to {mode.capitalize()}.")
 
-@bot.message_handler(commands=['start'])
-def welcome(message):
-    bot.reply_to(message,
-                 "You have entered the Matrix.\n\n"
-                 "Ask me anything, and I will guide you. — Neo")
+# ---------- VOICE ----------
+@bot.message_handler(content_types=["voice", "audio"])
+def voice(msg):
+    uid = msg.chat.id
+    ensure_user(uid)
 
+    file_id = msg.voice.file_id if msg.voice else msg.audio.file_id
+    info = bot.get_file(file_id)
+    audio = bot.download_file(info.file_path)
 
-@bot.message_handler(commands=['clear'])
-def clear_memory(message):
-    memory[message.chat.id] = {"summary": "", "recent": []}
-    bot.reply_to(message, "Your past has been erased. The path ahead is yours to choose. — Neo")
+    typing(uid)
+    try:
+        text = groq_transcribe(audio)
+        bot.reply_to(msg, f"Transcribed: {text}")
+        process_message(uid, text, msg)
+    except Exception:
+        bot.reply_to(msg, "Audio could not be decoded.")
 
+# ---------- TEXT ----------
+def process_message(uid, text, msg=None):
+    ensure_user(uid)
+    typing(uid)
 
-@bot.message_handler(func=lambda message: True)
-def chat(message):
-    reply = ask_ai(message.chat.id, message.text)
-    bot.reply_to(message, reply)
+    system = PERSONALITIES[memory[uid]["mode"]]["system"]
+    messages = build_messages(uid, text)
 
+    placeholder = bot.send_message(uid, "...")
+    try:
+        reply = groq_chat(system, messages)
+    except Exception as e:
+        bot.delete_message(uid, placeholder.message_id)
+        bot.reply_to(msg or uid, "The Matrix is unstable.")
+        return
 
-bot.polling()
+    add_message(uid, "user", text)
+    add_message(uid, "assistant", reply)
 
+    bot.delete_message(uid, placeholder.message_id)
+    typing(uid, 0.2)
+    bot.reply_to(msg or uid, reply)
+
+@bot.message_handler(content_types=["text"])
+def text(msg):
+    process_message(msg.chat.id, msg.text, msg)
+
+# ---------- START ----------
+if __name__ == "__main__":
+    print("Matrix bot online (Groq).")
+    bot.infinity_polling()
