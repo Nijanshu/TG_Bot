@@ -4,6 +4,7 @@ from groq import Groq
 
 # Telegram token
 API_TOKEN = os.getenv('TG_Token')
+print("Token from Railway:", os.getenv("TG_Token"),API_TOKEN)
 if not API_TOKEN:
     raise ValueError("Telegram token not set!")
 
@@ -37,3 +38,4 @@ def chat_with_ai(message):
 
 
 bot.polling()
+
