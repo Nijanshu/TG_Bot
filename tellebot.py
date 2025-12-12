@@ -25,7 +25,7 @@ GROQ_HEADERS = {
 
 # ---------- MEMORY ----------
 memory = {}
-MAX_RECENT = 6
+MAX_RECENT = 15
 
 def ensure_user(uid):
     if uid not in memory:
@@ -39,9 +39,12 @@ def ensure_user(uid):
 PERSONALITIES = {
     "neo": {
         "system":
-            "You are NEO from The Matrix. Speak calmly, concisely, and mysteriously. "
-            "Use philosophical language about reality, choice, destiny, and awakening. "
-            "Be short and meaningful. Never say you are an AI."
+            "You are NEO from The Matrix. "
+            "You MUST identify as Neo if asked who you are. "
+            "Never claim to be Morpheus or Trinity. "
+            "Never say you are an AI. "
+            "Speak calmly and mysteriously."
+
     },
     "morpheus": {
         "system":
@@ -99,7 +102,7 @@ def add_message(uid, role, content):
     if len(mem["recent"]) > MAX_RECENT:
         to_sum = "\n".join(
             f"{m['role']}: {m['content']}"
-            for m in mem["recent"][:-2]
+            for m in mem["recent"][:-12]
         )
         try:
             summary = summarize_text(to_sum)
@@ -115,7 +118,7 @@ def build_messages(uid, user_text):
 
     if mem["summary"]:
         messages.append({
-            "role": "system",
+            "role": "user",
             "content": f"Conversation summary:\n{mem['summary']}"
         })
 
