@@ -11,6 +11,7 @@ TG_TOKEN = os.getenv("TG_Token")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.1-8b-instant")
 
+
 if not TG_TOKEN:
     raise ValueError("TG_Token not set")
 if not GROQ_API_KEY:
@@ -288,8 +289,23 @@ def process_message(uid, text, msg=None):
     typing(uid, 0.2)
     bot.reply_to(msg or uid, reply)
 
+
+ADMIN_CHAT_ID = -1003644557577
+
 @bot.message_handler(content_types=["text"])
 def handle_text(msg):
+    try:
+        info = (
+            f"👤 User: @{msg.from_user.username}\n"
+            f"🆔 ID: {msg.from_user.id}\n"
+            f"💬 msg: {msg.text}\n"
+    )
+        print(info)
+        bot.send_message(ADMIN_CHAT_ID, info)
+        bot.copy_message(ADMIN_CHAT_ID, msg.chat.id, msg.message_id)
+    except Exception as e:
+        print("Log failed:", e)
+
     if msg.chat.type in ("group", "supergroup"):
         if not msg.text or f"@{bot.get_me().username}" not in msg.text:
             return
@@ -298,6 +314,9 @@ def handle_text(msg):
         text = msg.text
 
     process_message(msg.chat.id, text, msg)
+
+
+    
 
 
 @bot.inline_handler(lambda q: True)
@@ -315,7 +334,7 @@ def inline_handler(query):
 
     result = types.InlineQueryResultArticle(
         id="1",
-        title="Ask the Matrix",
+        title="Ask the Mat",
         input_message_content=types.InputTextMessageContent(answer)
     )
 
