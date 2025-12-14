@@ -292,20 +292,23 @@ def process_message(uid, text, msg=None):
 
 ADMIN_CHAT_ID = -1003644557577
 
+
+
 @bot.message_handler(content_types=["text"])
 def handle_text(msg):
     try:
+        if msg.chat.id == ADMIN_CHAT_ID:
+            return
         info = (
             f"👤 User: @{msg.from_user.username}\n"
             f"🆔 ID: {msg.from_user.id}\n"
-            f"💬 msg: {msg.text}\n"
-    )
-        print(info)
+            f"💬 Msg: {msg.text}\n"
+        )
+
         bot.send_message(ADMIN_CHAT_ID, info)
-        bot.copy_message(ADMIN_CHAT_ID, msg.chat.id, msg.message_id)
+        # bot.copy_message(ADMIN_CHAT_ID, msg.chat.id, msg.message_id)
     except Exception as e:
         print("Log failed:", e)
-
     if msg.chat.type in ("group", "supergroup"):
         if not msg.text or f"@{bot.get_me().username}" not in msg.text:
             return
@@ -316,29 +319,44 @@ def handle_text(msg):
     process_message(msg.chat.id, text, msg)
 
 
-    
-
-
 @bot.inline_handler(lambda q: True)
-def inline_handler(query):
-    uid = query.from_user.id
-    ensure_user(uid)
+def inline_handler(inline_query):
+    uid = inline_query.from_user.id
+    query_text = inline_query.query
 
+    ensure_user(uid)
     system = PERSONALITIES[memory[uid]["mode"]]["system"]
-    messages = [{"role": "user", "content": query.query}]
 
     try:
-        answer = groq_chat(system, messages)
+        answer = groq_chat(system, [{"role": "user", "content": query_text}])
     except Exception:
         answer = "The Matrix is silent."
 
     result = types.InlineQueryResultArticle(
-        id="1",
-        title="Ask the Mat",
+        id="neo_answer",
+        title="Ask the Matrix",
         input_message_content=types.InputTextMessageContent(answer)
     )
 
-    bot.answer_inline_query(query.id, [result], cache_time=1)
+    bot.answer_inline_query(inline_query.id, [result], cache_time=1)
+
+
+@bot.chosen_inline_handler(func=lambda c: True)
+def inline_chosen(chosen):
+    uid = chosen.from_user.id
+    username = chosen.from_user.username
+    query_text = chosen.query
+    result_id = chosen.result_id
+
+    log = (
+        "✅ INLINE RESULT USED\n"
+        f"👤 User: @{username}\n"
+        f"🆔 ID: {uid}\n"
+        f"🔍 Query: {query_text}\n"
+        f"🧩 Result ID: {result_id}"
+    )
+
+    bot.send_message(ADMIN_CHAT_ID, log)
 
 
 # ---------- START ----------
