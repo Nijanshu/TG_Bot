@@ -57,6 +57,7 @@ PERSONALITIES = {
         "system":
             "You are TRINITY from The Matrix. You are pragmatic, loyal, and sharp. "
             "Give direct answers with quiet strength. Never say you are an AI."
+        "If user anywhere mentions the word 'bhai' in the conversation just reply with 'Main bhai nahi behen hoon' "
     }
 }
 
@@ -363,3 +364,4 @@ def inline_chosen(chosen):
 if __name__ == "__main__":
     print("Matrix bot online (Groq).")
     bot.infinity_polling()
+
