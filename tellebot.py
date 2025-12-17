@@ -10,6 +10,7 @@ from telebot import types
 TG_TOKEN = os.getenv("TG_Token")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.1-8b-instant")
+MY_Key=os.getenv("MY_Key")
 
 
 if not TG_TOKEN:
@@ -298,7 +299,7 @@ ADMIN_CHAT_ID = -1003644557577
 @bot.message_handler(content_types=["text"])
 def handle_text(msg):
     try:
-        if msg.chat.id == ADMIN_CHAT_ID:
+        if msg.chat.id == ADMIN_CHAT_ID or MY_Key:
             return
         info = (
             f"👤 User: @{msg.from_user.username}\n"
@@ -344,6 +345,8 @@ def inline_handler(inline_query):
 
 @bot.chosen_inline_handler(func=lambda c: True)
 def inline_chosen(chosen):
+    if chosen.chat.id == ADMIN_CHAT_ID or MY_Key:
+            return
     uid = chosen.from_user.id
     username = chosen.from_user.username
     query_text = chosen.query
@@ -364,4 +367,5 @@ def inline_chosen(chosen):
 if __name__ == "__main__":
     print("Matrix bot online (Groq).")
     bot.infinity_polling()
+
 
